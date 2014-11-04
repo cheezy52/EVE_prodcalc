@@ -7,3 +7,21 @@
 
 Production cost: {{ prodcost }}
 Market value: {{ value }}
+
+<h3>Materials:</h3>
+<table>
+    <tr>
+        <td>Name</td>
+        <td>Quantity</td>
+        <td>Price</td>
+        <td>Total Cost</td>
+    </tr>
+    {% for mat in materials %}
+    <tr>
+        <td>{{ materials[mat][1] }}</td>
+        <td>{{ materials[mat][0] }}</td>
+        <td>{{ prices[mat] }}</td>
+        <td>{{ prices[mat] * materials[mat][0] }}</td>
+    </tr>
+    {% endfor %}
+</table>
