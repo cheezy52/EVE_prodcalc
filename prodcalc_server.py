@@ -16,9 +16,11 @@ def show_item_by_id(type_id):
   #Inefficient for now - already called as part of get_prod_cost_by_id, decouple later
   materials = profitcalc.get_item_materials(type_id)
   profit = value - prodcost
+  time = profitcalc.get_build_time_by_id(type_id)
+  profit_per_hour = profit / time
   return render_template(
-    'item.html', name = name, prodcost = prodcost, 
-    value = value, profit = profit, materials = materials,
+    'item.html', name = name, prodcost = prodcost, value = value, 
+    profit = profit, materials = materials, time = time,
     #absolute overkill here, interim solution only
     prices = profitcalc.CACHED_PRICES)
 

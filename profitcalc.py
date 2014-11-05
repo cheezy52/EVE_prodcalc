@@ -19,18 +19,35 @@ cur = conn.cursor()
 
 def get_type_id_by_name(item_name):
   #Returns the typeID for a single item name.  Must be an exact match.
-  cur.execute('SELECT "typeID" FROM "invTypes" WHERE "typeName" = (%s);', [item_name])
+  cur.execute("""
+    SELECT "typeID" 
+    FROM "invTypes" 
+    WHERE "typeName" = (%s);""", 
+    [item_name])
   return cur.fetchone()[0]
 
 def get_name_by_id(type_id):
   #Returns the item name for a single typeID.
-  cur.execute('SELECT "typeName" FROM "invTypes" WHERE "typeID" = (%s);', [type_id])
+  cur.execute("""
+    SELECT "typeName" 
+    FROM "invTypes" 
+    WHERE "typeID" = (%s);""", 
+    [type_id])
   return cur.fetchone()[0]
 
 def get_item_materials(type_id):
   #Returns the materials required to construct an item, given the output item's typeID.
   #Outputs are returned as a dict.  Keys: material typeIDs.  Values: (quantity, name).
-  cur.execute('SELECT iam."materialTypeID", iam."quantity", it."typeName" FROM "industryActivityProducts" iap JOIN "industryActivityMaterials" iam ON iap."typeID" = iam."typeID" AND iam."activityID" = 1 JOIN "invTypes" it ON iam."materialTypeID" = it."typeID" WHERE "productTypeID" = (%s);', [type_id])
+  cur.execute("""
+    SELECT iam."materialTypeID", iam."quantity", it."typeName" 
+    FROM "industryActivityProducts" iap 
+    JOIN "industryActivityMaterials" iam 
+    ON iap."typeID" = iam."typeID" 
+    AND iam."activityID" = 1 
+    JOIN "invTypes" it 
+    ON iam."materialTypeID" = it."typeID" 
+    WHERE "productTypeID" = (%s);""", 
+    [type_id])
   materials = {}
   for record in cur:
     materials[record[0]] = (record[1], record[2])
@@ -85,3 +102,14 @@ def get_prod_profit_by_name(item_name):
   #Returns the gross profit given by producing an item over its current market value.
   type_id = get_type_id_by_name(item_name)
   return get_item_value(type_id) - get_prod_cost_by_id(type_id)
+
+def get_build_time_by_id(type_id):
+  cur.execute("""
+    SELECT "time" 
+    FROM "industryActivity" ia
+    JOIN "industryActivityProducts" iap
+    ON ia."typeID" = iap."typeID"
+    WHERE iap."productTypeID" = (%s)
+    AND ia."activityID" = 1;""",
+    [type_id])
+  return cur.fetchone()[0]
