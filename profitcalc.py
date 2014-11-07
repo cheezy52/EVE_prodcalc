@@ -2,6 +2,7 @@ import evelink.api
 import evelink.thirdparty.eve_central as evelink_evec
 import urllib2
 import psycopg2
+import datetime
 
 #EVE-Central API setup
 api = evelink.api.API()
@@ -10,15 +11,15 @@ JITA = 30000142
 def fetch_func(url):
   return urllib2.urlopen(url).read()
 evec = evelink_evec.EVECentral(url_fetch_func = fetch_func)
-#Duct-tape caching solution to not make EVE-Central cry while debugging
-CACHED_PRICES = {}
+CACHE_DUR = datetime.timedelta(days=1)
 
 #PsycoPG/PostgreSQL setup
 conn = psycopg2.connect("dbname=EVE_Bulk user=cheezy52")
 cur = conn.cursor()
 
 def get_type_id_by_name(item_name):
-  #Returns the typeID for a single item name.  Must be an exact match.
+  """Returns the typeID for a single item name.  Must be an exact match."""
+
   cur.execute("""
     SELECT "typeID" 
     FROM "invTypes" 
@@ -27,7 +28,8 @@ def get_type_id_by_name(item_name):
   return cur.fetchone()[0]
 
 def get_name_by_id(type_id):
-  #Returns the item name for a single typeID.
+  """Returns the item name for a single typeID."""
+
   cur.execute("""
     SELECT "typeName" 
     FROM "invTypes" 
@@ -36,8 +38,11 @@ def get_name_by_id(type_id):
   return cur.fetchone()[0]
 
 def get_item_materials(type_id):
-  #Returns the materials required to construct an item, given the output item's typeID.
-  #Outputs are returned as a dict.  Keys: material typeIDs.  Values: (quantity, name).
+  """Returns the materials needed to build a single item.
+
+  Input: type_id
+  Output: {type_id: (quantity, name)}"""
+
   cur.execute("""
     SELECT iam."materialTypeID", iam."quantity", it."typeName" 
     FROM "industryActivityProducts" iap 
@@ -53,57 +58,106 @@ def get_item_materials(type_id):
     materials[record[0]] = (record[1], record[2])
   return materials
 
-def get_item_values(type_ids):
-  #Returns the current market values for all typeIDs in the input array.
-  #Outputs are returned as a dict.  Keys: material typeIDs.  Values: market avg. price.
-  prices = {}
-  if all (type_id in CACHED_PRICES.keys() for type_id in type_ids):
-    #Cache hit
-    for type_id in type_ids:
-      prices[type_id] = CACHED_PRICES[type_id]
-    return prices
-  else:
-    #Cache miss
-    response = evec.market_stats(type_ids, system=JITA)
-    print "EVE Central query fired"
-    for type_id in response.keys():
-      prices[type_id] = response[type_id]['sell']['percentile']
-      CACHED_PRICES[type_id] = prices[type_id]
-    return prices
+def get_prices(type_ids, cache_dur = CACHE_DUR):
+  """Returns the prices for the input type IDs.
 
-def get_item_value(type_id):
-  #Convenience wrapper for returning a single item's value.
-  #Returns the value directly, not as a dict.
-  if type_id in CACHED_PRICES.keys():
-    #Cache hit
-    return CACHED_PRICES[type_id]
-  else:
-    #Cache miss
-    value = get_item_values([type_id])[type_id]
-    CACHED_PRICES[type_id] = value
-    return value
+  Arguments:
+  type_ids: An array of type IDs for which to check prices
+  cache_dur: The maximum interval by which prices can be outdated
+
+  Output: {type_id: price}
+
+  First attempts to check database for fresh entries.
+  Any stale entries will have fresh data retrieved from EVE Central,
+  then call the get_prices function again with fresh data available."""
+
+  try:
+    dt = datetime.datetime.now() - cache_dur
+    cur.execute("""
+      SELECT "typeID", "price", "timeUpdated"
+      FROM "invTypePrices"
+      WHERE "typeID" = ANY (%s)
+      AND "timeUpdated" > (%s);""",
+      [type_ids, dt])
+  
+    prices = {}
+    for record in cur:
+      prices[record[0]] = record[1]
+
+    if len(prices.keys()) == len(type_ids):
+      #All records were found with up-to-date info and returned
+      return prices
+  
+    else:
+      #At least one outdated or nonexistent record
+      prices_to_update = []
+      for type_id in type_ids:
+        if not type_id in prices.keys():
+          prices_to_update.append(type_id)
+      update_prices(prices_to_update)
+    
+      #call ourselves again with updated record - verifies properly persisted
+      #danger of infinite loop if persisting fails!
+      return get_prices(type_ids)
+
+  except psycopg2.ProgrammingError as e:
+    print e.pgerror
+    print "Error fetching item prices.  Price table not created?"
+    conn.rollback()
+    create_price_table()
+    
+
+def update_prices(type_ids, system=JITA):
+  """Polls EVE Central for item prices, and saves them to the database.
+
+  Arguments:
+  type_ids: An array of type IDs for which to update prices
+  system: The EVE solar system in which to retrieve prices (numeric)
+
+  No outputs - function purely updates database entries."""
+
+  dt = datetime.datetime.now()
+  print "Firing EVE Central query..."
+  response = evec.market_stats(type_ids, system=system)
+  for type_id in response.keys():
+    print "Updating price on " + str(type_id)
+    cur.execute("""
+      UPDATE "invTypePrices"
+      SET "price" = (%s), "timeUpdated" = (%s)
+      WHERE "typeID" = (%s);""",
+      [response[type_id]['sell']['percentile'], dt, type_id])
+  
+  print "Finalizing transaction..."
+  conn.commit()
+
+def get_price(type_id):
+  """Convenience wrapper.  Returns a single item's price directly (no dict)."""
+
+  return get_prices([type_id])[type_id]
 
 def get_prod_cost_by_name(item_name):
-  #Convenience wrapper for get_prod_cost_by_id
+  """Convenience wrapper for get_prod_cost_by_id using an item's name."""
+
   type_id = get_type_id_by_name(item_name)
   return get_prod_cost_by_id(type_id)
 
 def get_prod_cost_by_id(type_id):
-  #Returns the cost to produce a given item from minerals.
-  #Use sparingly - initial implementation, NO caching of API results yet!
+  """Returns the cost to produce a given item from minerals."""
+
   materials = get_item_materials(type_id)
-  prices = get_item_values(materials.keys())
+  prices = get_prices(materials.keys())
   prodcost = 0
   for mat in materials.keys():
     prodcost += materials[mat][0]*prices[mat]
   return prodcost
 
 def get_prod_profit_by_name(item_name):
-  #Returns the gross profit given by producing an item over its current market value.
+  """Returns the profit given by producing an item relative to its market value."""
   type_id = get_type_id_by_name(item_name)
-  return get_item_value(type_id) - get_prod_cost_by_id(type_id)
+  return get_price(type_id) - get_prod_cost_by_id(type_id)
 
 def get_build_time_by_id(type_id):
+  """Returns the time, in seconds, required to build an item (without modifiers)."""
   cur.execute("""
     SELECT "time" 
     FROM "industryActivity" ia
@@ -113,3 +167,43 @@ def get_build_time_by_id(type_id):
     AND ia."activityID" = 1;""",
     [type_id])
   return cur.fetchone()[0]
+
+def create_price_table():
+  """Adds the table for price data to the database.
+
+  Should only be necessary after EVE expansions, and the accompanying
+  new version of the database."""
+
+  try:
+    print "Creating table"
+    cur.execute("""
+      CREATE TABLE "invTypePrices" 
+      ("typeID" integer PRIMARY KEY,
+      "price" integer,
+      "timeUpdated" timestamp);""")
+    
+    print "Fetching existing typeIDs"
+    cur.execute("""
+      SELECT "typeID"
+      FROM "invTypes";""")
+    
+    print "Creating records"
+    type_ids = cur.fetchall()
+    cur.executemany("""
+      INSERT INTO "invTypePrices" ("typeID")
+      VALUES (%s);""",
+      (type_ids))
+    
+    print "Populating records"
+    long_long_ago = datetime.datetime.min
+    cur.execute("""
+      UPDATE "invTypePrices"
+      SET "price" = (%s), "timeUpdated" = (%s);""",
+      (0, long_long_ago))
+
+    print "Finalizing transaction..."
+    conn.commit()
+  
+  except Exception as e:
+    print e
+    conn.rollback()
