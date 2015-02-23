@@ -42,6 +42,7 @@ def get_item_materials(type_id):
 
   Input: type_id
   Output: {type_id: (quantity, name)}"""
+  #NEEDS UPDATE TO HANDLE JOBS THAT OUTPUT MORE THAN ONE ITEM/RUN
 
   cur.execute("""
     SELECT iam."materialTypeID", iam."quantity", it."typeName" 
@@ -57,6 +58,21 @@ def get_item_materials(type_id):
   for record in cur:
     materials[record[0]] = (record[1], record[2])
   return materials
+
+def get_item_materials_rec(type_id):
+  """Returns the materials needed to build a single item.
+  Also returns the materials needed to build those materials recursively.
+
+  Input: type_id
+  Output: {type_id: (quantity, name, {submaterials})}"""
+
+  materials = get_item_materials(type_id)
+  new_materials = {}
+
+  for mat_typeid, mat_attrs in materials.iteritems():
+    new_mat_attrs = mat_attrs + (get_item_materials_rec(mat_typeid),)
+    new_materials[mat_typeid] = new_mat_attrs
+  return new_materials
 
 def get_prices(type_ids, cache_dur = CACHE_DUR):
   """Returns the prices for the input type IDs.
@@ -78,7 +94,7 @@ def get_prices(type_ids, cache_dur = CACHE_DUR):
       FROM "invTypePrices"
       WHERE "typeID" = ANY (%s)
       AND "timeUpdated" > (%s);""",
-      [type_ids, dt])
+      [list(type_ids), dt])
   
     prices = {}
     for record in cur:
@@ -101,11 +117,10 @@ def get_prices(type_ids, cache_dur = CACHE_DUR):
       return get_prices(type_ids)
 
   except psycopg2.ProgrammingError as e:
-    print e.pgerror
+    print e
     print "Error fetching item prices.  Price table not created?"
     conn.rollback()
     create_price_table()
-    
 
 def update_prices(type_ids, system=JITA):
   """Polls EVE Central for item prices, and saves them to the database.
@@ -166,7 +181,8 @@ def get_build_time_by_id(type_id):
     WHERE iap."productTypeID" = (%s)
     AND ia."activityID" = 1;""",
     [type_id])
-  return cur.fetchone()[0]
+  output = cur.fetchone()
+  return output[0] if output else 0
 
 def create_price_table():
   """Adds the table for price data to the database.
@@ -207,3 +223,17 @@ def create_price_table():
   except Exception as e:
     print e
     conn.rollback()
+
+def unpack_material_typeids(materials):
+  """Unpacks a list of materials with submaterials from get_item_materials_rec.
+  Traverses the nested dictionaries and returns a set of all seen typeids.
+
+  Input: dict of materials, from get_item_materials_rec
+  Output: [type_ids]"""
+
+  type_ids = set([])
+  for mat_typeid, mat_attrs in materials.iteritems():
+    type_ids.add(mat_typeid)
+    type_ids |= unpack_material_typeids(mat_attrs[2])
+
+  return type_ids

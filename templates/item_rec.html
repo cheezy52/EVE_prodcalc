@@ -1,0 +1,65 @@
+<!doctype html>
+
+NOTE: Results will be inaccurate for jobs that deliver multiple items per run.
+<title>{{ name }}</title>
+<h1>{{ name }}</h1>
+
+<h2>Profit/hr: {{ profit_per_hour }}</h2>
+
+<ul>
+    <li>Production cost: {{ prodcost }}</li>
+    <li>Production cost (from scratch): {{ prodcost_scratch }}</li>
+    <li>Market value: {{ value }}</li>
+    <li>Raw profit: {{ profit }}</li>
+    <li>Raw profit (from scratch): {{ value - prodcost_scratch }}</li>
+    <li>Build time (s): {{ time }}</li>
+</ul>
+
+
+<h3>Materials:</h3>
+<table>
+    <tr>
+        <td>Name</td>
+        <td>Quantity</td>
+        <td>Price</td>
+        <td>Total Cost</td>
+        <td>Profit If Produced</td>
+    </tr>
+    {% for mat_id in materials %}
+    <tr>
+        <td>{{ materials[mat_id][1] }}</td>
+        <td>{{ materials[mat_id][0] }}</td>
+        <td>{{ prices[mat_id] }}</td>
+        <td>{{ prices[mat_id] * materials[mat_id][0] }}</td>
+        {% if submat_totals[mat_id] %}
+        <td>{{ prices[mat_id] * materials[mat_id][0] - submat_totals[mat_id]}}</td>
+        {% endif %}
+    </tr>
+        {% if submaterials[mat_id] %}
+        <tr>
+            <td></td>
+            <td>Submaterial Name</td>
+            <td>Quantity</td>
+            <td>Price</td>
+            <td>Total Cost</td>
+        </tr>
+            {% for submat_id, submat_attrs in submaterials[mat_id] %}
+        <tr>
+            <td></td>
+            <td>{{ submat_attrs[1] }}</td>
+            <td>{{ submat_attrs[0] * materials[mat_id][0] }}</td>
+            <td>{{ prices[submat_id] }}</td>
+            <td>{{ prices[submat_id] * submat_attrs[0] * materials[mat_id][0] }}</td>
+        </tr>
+            {% endfor %}
+        <tr>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>Total Cost:</td>
+            <td>{{ submat_totals[mat_id] }}</td>
+        </tr>
+        <tr height='20'></tr>
+        {% endif %}
+    {% endfor %}
+</table>
