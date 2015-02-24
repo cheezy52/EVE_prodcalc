@@ -195,7 +195,7 @@ def create_price_table():
     cur.execute("""
       CREATE TABLE "invTypePrices" 
       ("typeID" integer PRIMARY KEY,
-      "price" integer,
+      "price" bigint,
       "timeUpdated" timestamp);""")
     
     print "Fetching existing typeIDs"
