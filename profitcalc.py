@@ -39,13 +39,14 @@ def get_name_by_id(type_id):
 
 def get_item_materials(type_id):
   """Returns the materials needed to build a single item.
+  For jobs which output multiple items per run,
+  results are normalized/amortized to be the quantity for a single output item.
 
   Input: type_id
   Output: {type_id: (quantity, name)}"""
-  #NEEDS UPDATE TO HANDLE JOBS THAT OUTPUT MORE THAN ONE ITEM/RUN
 
   cur.execute("""
-    SELECT iam."materialTypeID", iam."quantity", it."typeName" 
+    SELECT iam."materialTypeID", iam."quantity", it."typeName", iap."quantity" 
     FROM "industryActivityProducts" iap 
     JOIN "industryActivityMaterials" iam 
     ON iap."typeID" = iam."typeID" 
@@ -56,7 +57,12 @@ def get_item_materials(type_id):
     [type_id])
   materials = {}
   for record in cur:
-    materials[record[0]] = (record[1], record[2])
+    #Normalize to output-quantity of 1 - leave as int if no adjustment needed
+    if record[3] == 1:
+      materials[record[0]] = (record[1], record[2])
+    else:
+      materials[record[0]] = (record[1] / float(record[3]), record[2])
+
   return materials
 
 def get_item_materials_rec(type_id):
@@ -75,7 +81,7 @@ def get_item_materials_rec(type_id):
   return new_materials
 
 def get_prices(type_ids, cache_dur = CACHE_DUR):
-  """Returns the prices for the input type IDs.
+  """Returns the prices for the input type IDs, as whole ISK with cents.
 
   Arguments:
   type_ids: An array of type IDs for which to check prices
@@ -98,7 +104,7 @@ def get_prices(type_ids, cache_dur = CACHE_DUR):
   
     prices = {}
     for record in cur:
-      prices[record[0]] = record[1]
+      prices[record[0]] = float(record[1])
 
     if len(prices.keys()) == len(type_ids):
       #All records were found with up-to-date info and returned
@@ -172,9 +178,12 @@ def get_prod_profit_by_name(item_name):
   return get_price(type_id) - get_prod_cost_by_id(type_id)
 
 def get_build_time_by_id(type_id):
-  """Returns the time, in seconds, required to build an item (without modifiers)."""
+  """Returns the time, in seconds, required to build an item (without modifiers).
+  For jobs which output multiple items per run,
+  results are amortized to the build time to produce a single output item."""
+
   cur.execute("""
-    SELECT "time" 
+    SELECT "time", "quantity" 
     FROM "industryActivity" ia
     JOIN "industryActivityProducts" iap
     ON ia."typeID" = iap."typeID"
@@ -182,7 +191,7 @@ def get_build_time_by_id(type_id):
     AND ia."activityID" = 1;""",
     [type_id])
   output = cur.fetchone()
-  return output[0] if output else 0
+  return output[0] / output[1] if output else 0
 
 def create_price_table():
   """Adds the table for price data to the database.
@@ -195,7 +204,7 @@ def create_price_table():
     cur.execute("""
       CREATE TABLE "invTypePrices" 
       ("typeID" integer PRIMARY KEY,
-      "price" bigint,
+      "price" decimal,
       "timeUpdated" timestamp);""")
     
     print "Fetching existing typeIDs"
