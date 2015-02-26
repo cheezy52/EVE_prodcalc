@@ -1,6 +1,7 @@
 <!doctype html>
 
 <title>{{ name }}</title>
+<link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}">
 <h1>{{ name }}</h1>
 
 <h2>Profit/hr: {{ profit_per_hour }}</h2>
@@ -16,7 +17,8 @@
 
 
 <h3>Materials:</h3>
-<table>
+<p id="submaterials-toggle"><a href="#">Click to show/hide all submaterials</a></p>
+<table class="no-spacing">
     <tr>
         <td>Name</td>
         <td>Quantity</td>
@@ -25,7 +27,7 @@
         <td>Profit If Produced</td>
     </tr>
     {% for mat_id in materials %}
-    <tr>
+    <tr class="materials">
         <td>{{ materials[mat_id][1] }}</td>
         <td>{{ materials[mat_id][0] }}</td>
         <td>{{ prices[mat_id] }}</td>
@@ -35,30 +37,34 @@
         {% endif %}
     </tr>
         {% if submaterials[mat_id] %}
-        <tr>
-            <td></td>
+        <tr class="submaterials">
             <td>Submaterial Name</td>
             <td>Quantity</td>
             <td>Price</td>
             <td>Total Cost</td>
         </tr>
             {% for submat_id, submat_attrs in submaterials[mat_id] %}
-        <tr>
-            <td></td>
+        <tr class="submaterials">
             <td>{{ submat_attrs[1] }}</td>
             <td>{{ submat_attrs[0] * materials[mat_id][0] }}</td>
             <td>{{ prices[submat_id] }}</td>
             <td>{{ prices[submat_id] * submat_attrs[0] * materials[mat_id][0] }}</td>
         </tr>
             {% endfor %}
-        <tr>
-            <td></td>
+        <tr class="submaterials">
             <td></td>
             <td></td>
             <td>Total Cost:</td>
             <td>{{ submat_totals[mat_id] }}</td>
         </tr>
-        <tr height='20'></tr>
         {% endif %}
+        <tr class="submaterials" height='20'></tr>
     {% endfor %}
 </table>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+<script type=text/javascript>
+    $('#submaterials-toggle').click(function() {
+        $('.submaterials').toggle();
+    });
+</script>

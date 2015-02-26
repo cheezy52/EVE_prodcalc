@@ -1,0 +1,16 @@
+table.no-spacing {
+    border-spacing: 0;
+    border-collapse: collapse;
+}
+
+td {
+    border: 1px solid black;
+}
+
+.materials {
+    font-weight: bold;
+}
+
+.submaterials {
+    display:none;
+}
